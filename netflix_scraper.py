@@ -86,7 +86,13 @@ def save_records(records):
 def parse_date(date_str):
     try:
         # Standardize format: 2026/2/9 -> 2026-02-09
-        return datetime.strptime(date_str.strip(), "%Y/%m/%d")
+        # Try multiple formats
+        for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(date_str.strip(), fmt)
+            except ValueError:
+                continue
+        return None
     except:
         return None
 
