@@ -1,6 +1,6 @@
 # Netflix Meta-Scraper & Content Engine (全自动 Netflix 内容生成引擎)
 
-![Project Banner](images/Title_Page.jpg)
+<img width="3012" height="4075" alt="项目预览图" src="https://github.com/user-attachments/assets/8fafad4f-a7c5-41a7-871a-5874411b772c" />
 
 ## 🚀 项目简介
 
