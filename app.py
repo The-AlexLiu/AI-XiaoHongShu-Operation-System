@@ -13,6 +13,7 @@ from typing import Dict, List
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from openai import OpenAI
+from netflix_scraper import NetflixScraper
 
 app = FastAPI()
 
@@ -20,8 +21,8 @@ app = FastAPI()
 load_dotenv()
 try:
     client = OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL")
+        api_key=os.getenv("OPENAI_API_KEY", "sk-revt2lXwWVajTLHt382a1c855331414e9e6bEfBf9b961b3b"),
+        base_url=os.getenv("OPENAI_BASE_URL", "https://api.aihubmix.com/v1")
     )
 except Exception as e:
     print(f"Warning: OpenAI client init failed: {e}")
@@ -54,9 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job store - Note: In Serverless, this will NOT persist between requests/lambdas!
-# For a real Vercel deployment, you need a database (e.g. KV, Postgres, Firebase).
-# For this demo/diagnosis, we'll keep it but warn about limitations.
+# In-memory job store
 jobs: Dict[str, dict] = {}
 
 class ScrapeRequest(BaseModel):
@@ -64,33 +63,25 @@ class ScrapeRequest(BaseModel):
     end_date: str = None
 
 def run_scraper_task(job_id: str, start: str, end: str):
-    # WARNING: BackgroundTasks in Vercel Serverless are not guaranteed to run to completion 
-    # if the response is sent. Vercel functions have a timeout (usually 10s-60s).
-    # Scraping takes longer. This architecture is fundamentally incompatible with standard Vercel Functions
-    # for long-running tasks without using a queue (e.g. Vercel Cron, QStash).
-    
-    # Also Playwright in Vercel requires special handling (installing browsers).
-    # We will try to run it, but it might fail or timeout.
-    
     jobs[job_id]["status"] = "running"
     
-    # Adjust output directory for scraper
-    cmd = ["python3", "netflix_scraper.py", "--output", IMAGES_DIR]
-    if start: cmd.extend(["--start", start])
-    if end: cmd.extend(["--end", end])
+    def progress_callback(data):
+        # Update job status with data from scraper
+        # data contains: status, log, processed, total_est, eta_seconds
+        jobs[job_id].update(data)
+        if "log" in data:
+            jobs[job_id]["logs"].append(data["log"])
     
     try:
-        # In Vercel, we can't easily stream stdout from a subprocess in a background task
-        # back to a variable that another request can read (due to lambda isolation).
-        # This part needs a DB.
-        
-        # For now, let's just try to run it synchronously if we want to debug, 
-        # OR acknowledge that this won't work well in Vercel without a DB.
-        pass 
+        scraper = NetflixScraper(output_dir=IMAGES_DIR)
+        jobs[job_id]["scraper"] = scraper
+        scraper.run(start_date_str=start, end_date_str=end, progress_callback=progress_callback)
+        # Only set completed if not already stopped
+        if jobs[job_id]["status"] != "stopped":
+            jobs[job_id]["status"] = "completed"
     except Exception as e:
         jobs[job_id]["status"] = "failed"
-        jobs[job_id]["logs"].append(str(e))
-
+        jobs[job_id]["logs"].append(f"Error: {str(e)}")
 
 @app.post("/api/scrape")
 async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks):
@@ -98,7 +89,9 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
     jobs[job_id] = {
         "status": "pending",
         "logs": [],
-        "count": 0,
+        "processed": 0,
+        "total_est": 0,
+        "eta_seconds": 0,
         "start_date": request.start_date,
         "end_date": request.end_date
     }
@@ -106,13 +99,17 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
     # Cleanup old data if starting a new run
     if os.path.exists("netflix_records.csv"):
         os.remove("netflix_records.csv")
-    if os.path.exists("images"):
-        # We don't delete the whole images folder to preserve cache if needed, 
-        # but for a clean run arguably we should? 
-        # User request implies they want ONLY the date range content.
-        # Let's clean it to be safe and avoid confusion.
-        shutil.rmtree("images")
-        os.makedirs("images")
+    if os.path.exists(IMAGES_DIR):
+        # Clear images directory but keep the directory
+        for filename in os.listdir(IMAGES_DIR):
+            file_path = os.path.join(IMAGES_DIR, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f'Failed to delete {file_path}. Reason: {e}')
         
     background_tasks.add_task(run_scraper_task, job_id, request.start_date, request.end_date)
     return {"job_id": job_id}
@@ -121,7 +118,20 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
 async def get_status(job_id: str):
     if job_id not in jobs:
         return {"error": "Job not found"}
-    return jobs[job_id]
+    # Don't send the scraper instance in the response
+    result = {k: v for k, v in jobs[job_id].items() if k != "scraper"}
+    return result
+
+@app.post("/api/stop/{job_id}")
+async def stop_scrape(job_id: str):
+    if job_id not in jobs:
+        return {"error": "Job not found"}
+    scraper = jobs[job_id].get("scraper")
+    if scraper:
+        scraper.stop()
+        jobs[job_id]["status"] = "stopped"
+        return {"status": "stopped"}
+    return {"error": "No active scraper found"}
 
 @app.get("/api/results")
 async def get_results():
@@ -155,12 +165,12 @@ async def download_package():
         os.makedirs(images_dest)
     
     # 1. Copy Title Page if exists
-    title_page = os.path.join("images", "Title_Page.jpg")
+    title_page = os.path.join(IMAGES_DIR, "Title_Page.jpg")
     if os.path.exists(title_page):
         shutil.copy(title_page, temp_export_dir)
 
     # 2. Copy scraped images (but NOT CSV)
-    if os.path.exists("images"):
+    if os.path.exists(IMAGES_DIR):
         # We want images in an 'images' subfolder or root? User said "images/" folder
         # Let's keep them in 'images' subfolder inside zip for cleanliness, 
         # or root if they want flat list.
@@ -173,11 +183,11 @@ async def download_package():
         #           ...
         
         # images_dest is already temp_export_dir/images
-        for item in os.listdir("images"):
+        for item in os.listdir(IMAGES_DIR):
             if item == "Title_Page.jpg": continue # Already copied to root
             if not item.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')): continue
             
-            s = os.path.join("images", item)
+            s = os.path.join(IMAGES_DIR, item)
             d = os.path.join(images_dest, item)
             if os.path.isfile(s):
                 shutil.copy2(s, d)
@@ -221,26 +231,32 @@ async def generate_note(request: NoteRequest):
     if not movies:
         return {"note": "No movies found to generate a note for. Please scrape first!"}
         
+    movie_count = len(movies)
     movie_list_str = "\n".join(movies)
+    
+    # EXACT Title as requested by user
+    exact_title = f"新片上映！Netflix 本周 {movie_count} 部新片拯救剧荒"
     
     prompt = f"""
     You are a top-tier movie blogger on Xiaohongshu (Little Red Book). 
     Your task is to write a viral, emoji-rich recommendation post for the latest Netflix movies.
 
-    Movies to recommend:
+    Movies to recommend ({movie_count} movies):
     {movie_list_str}
 
     Critical Requirements:
-    1. **Title**: {f'MUST be exactly: "{request.override_title}"' if request.override_title else 'Create a click-bait title under 20 chars with emojis.'}
+    1. **Title**: The very first line of your response MUST BE EXACTLY: "{exact_title}"
     2. **Tone**: Super enthusiastic, engaging, and "internet-native" (use popular slang like "绝绝子", "宝藏", "狠狠期待").
     3. **Structure**:
-       - Start with a hook (e.g., "Netflix 本周杀疯了！🔥").
+       - Start with the exact Title above.
+       - Add a brief hook.
        - List the movies with brief, punchy highlights (1-2 sentences each).
        - Use plenty of emojis to break up text 🎬 🍿 ✨.
        - Keep paragraphs short for mobile readability.
-    4. **Call to Action (MANDATORY)**: You MUST end the post with a strong CTA inviting users to join the community for free viewing. 
-       - Example: "想要免费看片的小伙伴，快戳主页进群啦！👀" or "评论区滴滴，拉你进免费观影群！👇"
-    5. **Tags**: Use these tags: {request.override_tags if request.override_tags else '#Netflix #网飞 #追剧 #电影推荐 #周末看什么'}.
+    4. **Call to Action (MANDATORY)**: You MUST end the post with a strong CTA inviting users to their profile to watch the organized movies and follow for more. 
+       - EXACT requirement: "呼吁用户进入主页观看整理好的影片以及关注账号可以看到更多影片信息"
+       - Example: "快戳主页观看整理好的高清影片库吧！👀 记得关注我，每周带你解锁更多爆款好剧！👇"
+    5. **Tags (MANDATORY)**: End the post with EXACTLY these tags (no more, no less): #Netflix #奈飞 #新剧 #美剧 #周末
     6. **Formatting**: 
        - Language: Chinese (Simplified).
        - STRICTLY NO Markdown bold (**text**) or italic (*text*). Plain text only.

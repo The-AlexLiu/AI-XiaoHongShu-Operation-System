@@ -1,24 +1,52 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-venv/
-.env
-backend.log
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Node
-node_modules/
+# Data & Output
+images/
+downloads/
+*.csv
+*.zip
+!images/.gitkeep
+
+# Node.js (Frontend)
 frontend/node_modules/
 frontend/dist/
-frontend/.DS_Store
+frontend/.env
+frontend/.env.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
 
-# Scraper Output
-images/
-netflix_records.csv
-netflix_scraper_export.zip
-temp_export/
-
-# System
+# OS macOS
 .DS_Store
-.idea/
-.vscode/
+.AppleDouble
+.LSOverride
+
+# Keep directories structure
+!images/
+!downloads/

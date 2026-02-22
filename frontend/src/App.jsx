@@ -1,26 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Calendar, Download, CheckCircle2, Loader2, Image as ImageIcon, ExternalLink, ScrollText, Zap, Shield, Globe, Sparkles, X, Copy, Check, ChevronDown } from 'lucide-react';
+import { Play, Calendar, Download, Loader2, Image as ImageIcon, ScrollText, Zap, Sparkles, Copy, Check, ChevronDown, ChevronUp, Square, RotateCcw, FileText, Clock, Film } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Convert "2026/02/11" to "2月11日" format
+// Convert "2026-02-11" to "2月11日" format
 const formatDateChinese = (dateStr) => {
   if (!dateStr) return dateStr;
-  const parts = dateStr.split('/');
+  const parts = dateStr.split('-');
   if (parts.length !== 3) return dateStr;
   const month = parseInt(parts[1], 10);
   const day = parseInt(parts[2], 10);
   return `${month}月${day}日`;
 };
 
+// Convert "2026-02-11" to "2026/02/11" for backend
+const toSlashDate = (isoDate) => {
+  if (!isoDate) return isoDate;
+  return isoDate.replace(/-/g, '/');
+};
+
+const STANDARD_TAGS = "#Netflix #奈飞 #网剧 #新剧 #美剧";
+
 const App = () => {
-  const [startDate, setStartDate] = useState('2026/02/09');
-  const [endDate, setEndDate] = useState('2026/02/15');
+  const [startDate, setStartDate] = useState('2026-02-09');
+  const [endDate, setEndDate] = useState('2026-02-15');
   const [titleType, setTitleType] = useState('新片上映');
-  const [status, setStatus] = useState('idle'); // idle, running, scraping, generating_note, completed, failed
+  const [status, setStatus] = useState('idle'); // idle, scraping, generating_note, completed, stopped, failed
   const [jobId, setJobId] = useState(null);
   const [logs, setLogs] = useState([]);
   const [results, setResults] = useState([]);
   const [count, setCount] = useState(0);
+  const [eta, setEta] = useState(0);
+  const [total, setTotal] = useState(0);
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
   const [generatingNote, setGeneratingNote] = useState(false);
@@ -28,19 +38,27 @@ const App = () => {
   const [contentCopied, setContentCopied] = useState(false);
   const [titleImage, setTitleImage] = useState(null);
   const [generatingTitle, setGeneratingTitle] = useState(false);
+  const [logsExpanded, setLogsExpanded] = useState(false);
   const logEndRef = useRef(null);
 
+  // Polling effect for scraping status
   useEffect(() => {
-    if ((status === 'running' || status === 'scraping') && jobId) {
+    if (status === 'scraping' && jobId) {
       const interval = setInterval(async () => {
         try {
           const res = await fetch(`/api/status/${jobId}`);
           const data = await res.json();
           setLogs(data.logs || []);
-          setCount(data.count || 0);
+          setCount(data.processed || 0);
+          setEta(data.eta_seconds || 0);
+          setTotal(data.total_est || 0);
           if (data.status === 'completed') {
             clearInterval(interval);
             setStatus('generating_note');
+            await fetchResults();
+          } else if (data.status === 'stopped') {
+            clearInterval(interval);
+            setStatus('stopped');
             await fetchResults();
           } else if (data.status === 'failed') {
             setStatus('failed');
@@ -55,6 +73,7 @@ const App = () => {
     }
   }, [status, jobId]);
 
+  // Auto-generate note when scraping completes
   useEffect(() => {
     if (status === 'generating_note') {
       const generateNote = async () => {
@@ -63,42 +82,38 @@ const App = () => {
           const resultsData = await resResults.json();
           setResults(resultsData);
 
-          const dynamicTitle = `${titleType}！Netflix 本周 ${resultsData.length} 部新片，拯救剧荒`;
+          const dynamicTitle = `新片上映！Netflix 本周 ${resultsData.length} 部新片拯救剧荒`;
           
           const res = await fetch('/api/generate_note', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-              start_date: startDate, 
-              end_date: endDate,
+              start_date: toSlashDate(startDate), 
+              end_date: toSlashDate(endDate),
               override_title: dynamicTitle,
               override_tags: STANDARD_TAGS
             })
           });
           const data = await res.json();
           if (data.note) {
-            // Split title and content if possible, or just use the whole note
-            // Assuming the AI returns the title in the first line or we use our dynamicTitle
-            // Let's use the dynamicTitle as the title since we enforced it in the prompt
             setNoteTitle(dynamicTitle);
-            
-            // Remove title from content if it appears there to avoid duplication
             let content = data.note;
             if (content.startsWith(dynamicTitle)) {
-                content = content.replace(dynamicTitle, '').trim();
+              content = content.replace(dynamicTitle, '').trim();
             }
             setNoteContent(content);
             setStatus('completed');
           } else {
-            setStatus('failed');
+            setStatus('completed');
           }
         } catch (err) {
           console.error('Generate note error:', err);
-          setStatus('failed');
+          setStatus('completed');
         } finally {
           setGeneratingNote(false);
         }
       };
+      setGeneratingNote(true);
       generateNote();
     }
   }, [status, titleType, startDate, endDate]);
@@ -106,9 +121,6 @@ const App = () => {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
-
-  // Standardized tags
-  const STANDARD_TAGS = "#Netflix #奈飞 #网剧 #新剧 #美剧";
 
   const fetchResults = async () => {
     try {
@@ -122,25 +134,62 @@ const App = () => {
 
   const handleDownload = async () => {
     try {
-      window.open('/api/download', '_blank');
+      const formattedStart = startDate.replace(/-/g, '');
+      const formattedEnd = endDate.replace(/-/g, '');
+      const zipName = `[${formattedStart}-${formattedEnd}]奈飞笔记.zip`;
+
+      const res = await fetch('/api/download');
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: zipName,
+            types: [{
+              description: 'ZIP Archive',
+              accept: { 'application/zip': ['.zip'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } catch (pickerErr) {
+          // User cancelled the prompt, ignore
+          if (pickerErr.name !== 'AbortError') {
+            throw pickerErr;
+          }
+        }
+      } else {
+        // Fallback for browsers that do not support showSaveFilePicker
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = zipName;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
     } catch (err) {
       console.error('Download error:', err);
+      alert('下载出错，请重试');
     }
   };
 
   const handleGenerateNote = async () => {
     setGeneratingNote(true);
-    const dynamicTitle = `${titleType}！Netflix 本周 ${results.length} 部新片，拯救剧荒`;
+    const dynamicTitle = `新片上映！Netflix 本周 ${results.length} 部新片拯救剧荒`;
     
     try {
       const res = await fetch('/api/generate_note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            start_date: startDate, 
-            end_date: endDate,
-            override_title: dynamicTitle,
-            override_tags: STANDARD_TAGS
+          start_date: toSlashDate(startDate), 
+          end_date: toSlashDate(endDate),
+          override_title: dynamicTitle,
+          override_tags: STANDARD_TAGS
         })
       });
       const data = await res.json();
@@ -148,7 +197,7 @@ const App = () => {
         setNoteTitle(dynamicTitle);
         let content = data.note;
         if (content.startsWith(dynamicTitle)) {
-             content = content.replace(dynamicTitle, '').trim();
+          content = content.replace(dynamicTitle, '').trim();
         }
         setNoteContent(content);
       } else {
@@ -161,44 +210,51 @@ const App = () => {
     }
   };
 
-  const copyTitle = () => {
-    navigator.clipboard.writeText(noteTitle).then(() => {
-        setTitleCopied(true);
-        setTimeout(() => setTitleCopied(false), 2000);
+  const copyToClipboard = (text, setCopied) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }).catch(err => {
-        console.error('Failed to copy title:', err);
-        alert('Copy failed. Please copy manually.');
+      console.error('Copy failed:', err);
     });
   };
 
-  const copyContent = () => {
-    navigator.clipboard.writeText(noteContent).then(() => {
-        setContentCopied(true);
-        setTimeout(() => setContentCopied(false), 2000);
-    }).catch(err => {
-        console.error('Failed to copy content:', err);
-        alert('Copy failed. Please copy manually.');
-    });
+  const handleStop = async () => {
+    if (jobId) {
+      try {
+        await fetch(`/api/stop/${jobId}`, { method: 'POST' });
+      } catch (err) {
+        console.error('Stop error:', err);
+      }
+    }
   };
 
   const handleRunWorkflow = async () => {
+    if (new Date(endDate) < new Date(startDate)) {
+      alert('⚠️ 结束日期不能早于开始日期，请重新选择');
+      return;
+    }
+
     setStatus('scraping');
     setLogs([]);
     setCount(0);
     setTitleImage(null);
     setGeneratingTitle(true);
-    setGeneratingNote(true);
+    setGeneratingNote(false);
     setResults([]);
+    setNoteTitle('');
+    setNoteContent('');
+    setLogsExpanded(true);
 
     // Trigger Title Generation in parallel
     fetch('/api/generate_title', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date_range: `${formatDateChinese(startDate)}～${formatDateChinese(endDate)}`, title: titleType })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_range: `${formatDateChinese(startDate)}～${formatDateChinese(endDate)}`, title: titleType })
     })
     .then(res => res.json())
     .then(data => {
-        if (data.image_url) setTitleImage(data.image_url);
+      if (data.image_url) setTitleImage(data.image_url);
     })
     .catch(err => console.error("Title generation error:", err))
     .finally(() => setGeneratingTitle(false));
@@ -207,16 +263,18 @@ const App = () => {
       const res = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ start_date: startDate, end_date: endDate })
+        body: JSON.stringify({ start_date: toSlashDate(startDate), end_date: toSlashDate(endDate) })
       });
       const data = await res.json();
       setJobId(data.job_id);
     } catch (err) {
       setStatus('failed');
       console.error('Start scrape error:', err);
-      setGeneratingNote(false);
     }
   };
+
+  const isRunning = status === 'scraping' || status === 'generating_note';
+  const hasResults = results.length > 0 || status === 'completed' || status === 'stopped';
 
   return (
     <div className="min-h-screen selection:bg-netflix-red selection:text-white">
@@ -225,362 +283,361 @@ const App = () => {
       <div className="bg-cinematic-overlay" />
 
       {/* Main Content */}
-      <div className="max-w-[1400px] mx-auto px-6 py-12 space-y-24 relative z-10">
+      <div className="max-w-6xl mx-auto px-5 py-8 space-y-8 relative z-10">
         
-        {/* Header Hero */}
-        <header className="flex flex-col items-center text-center space-y-6">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-16 h-16 bg-netflix-red rounded-xl flex items-center justify-center font-black text-3xl shadow-2xl shadow-netflix-red/40"
-          >
+        {/* ========== Header ========== */}
+        <header className="flex items-center gap-4 pt-4 pb-2">
+          <div className="w-10 h-10 bg-netflix-red rounded-lg flex items-center justify-center font-black text-lg shadow-lg shadow-netflix-red/30 shrink-0">
             N
-          </motion.div>
-          <div className="space-y-2">
-            <h1 className="text-6xl font-black tracking-tighter uppercase hero-text">
-               Netflix <span className="text-netflix-red">Meta</span> Scraper
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight uppercase">
+              Netflix <span className="text-netflix-red">Meta</span> Scraper
             </h1>
-            <p className="text-white/50 text-xl font-medium max-w-2xl mx-auto leading-relaxed">
-              Premium automation for high-fidelity movie posters and structured metadata extraction at scale.
-            </p>
+            <p className="text-white/40 text-sm">自动化采集 Netflix 新片数据 · 生成小红书图文素材</p>
           </div>
         </header>
 
-        {/* Control & Tracking Grid */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-          
-          {/* Controls Hook */}
-          <div className="lg:col-span-12 flex justify-center">
-             <div className="glass w-full max-w-4xl p-1 px-1 rounded-[2rem] flex flex-col md:flex-row items-center gap-4 overflow-hidden">
-                <div className="flex-1 flex items-center gap-6 px-8 py-4 w-full">
-                  <div className="flex-1 space-y-1">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-1">Horizon Begin</p>
-                    <div className="flex items-center gap-3">
-                      <Calendar className="w-5 h-5 text-netflix-red" />
-                      <input 
-                        type="text" 
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="bg-transparent text-xl font-black focus:outline-none w-full border-b border-white/10 focus:border-netflix-red transition-all"
-                        placeholder="2026/02/09"
-                      />
-                    </div>
-                  </div>
-                  <div className="w-px h-12 bg-white/10 hidden md:block" />
-                  <div className="flex-1 space-y-1">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-1">Horizon End</p>
-                    <div className="flex items-center gap-3">
-                      <Calendar className="w-5 h-5 text-netflix-red" />
-                      <input 
-                        type="text" 
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-transparent text-xl font-black focus:outline-none w-full border-b border-white/10 focus:border-netflix-red transition-all"
-                        placeholder="2026/02/20"
-                      />
-                    </div>
-                  </div>
-                  <div className="w-px h-12 bg-white/10 hidden md:block" />
-                  <div className="flex-1 space-y-1">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-1">Title Strategy</p>
-                    <div className="relative flex items-center gap-3">
-                      <ChevronDown className="absolute right-0 w-4 h-4 text-white/30 pointer-events-none" />
-                      <select 
-                        value={titleType}
-                        onChange={(e) => setTitleType(e.target.value)}
-                        className="bg-transparent text-xl font-black focus:outline-none w-full appearance-none border-b border-white/10 focus:border-netflix-red transition-all py-1"
-                      >
-                         <option value="新片上映" className="bg-black">新片上映</option>
-                         <option value="收视冠军" className="bg-black">收视冠军</option>
-                         <option value="本周上新" className="bg-black">本周上新</option>
-                      </select>
-                    </div>
-                  </div>
+        {/* ========== Control Panel ========== */}
+        <section className="glass rounded-2xl p-6">
+          <div className="flex flex-col md:flex-row items-end gap-5">
+            {/* Date Inputs */}
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4 w-full">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3 text-netflix-red" />
+                  开始日期
+                </label>
+                <input 
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base font-semibold focus:outline-none focus:border-netflix-red focus:ring-1 focus:ring-netflix-red/30 transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3 text-netflix-red" />
+                  结束日期
+                </label>
+                <input 
+                  type="date" 
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base font-semibold focus:outline-none focus:border-netflix-red focus:ring-1 focus:ring-netflix-red/30 transition-all"
+                />
+              </div>
+              <div className="space-y-1.5 col-span-2 md:col-span-1">
+                <label className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-1.5">
+                  <FileText className="w-3 h-3 text-netflix-red" />
+                  封面标题
+                </label>
+                <div className="relative">
+                  <select 
+                    value={titleType}
+                    onChange={(e) => setTitleType(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base font-semibold focus:outline-none focus:border-netflix-red focus:ring-1 focus:ring-netflix-red/30 transition-all appearance-none pr-10"
+                  >
+                    <option value="新片上映" className="bg-netflix-black">新片上映</option>
+                    <option value="收视冠军" className="bg-netflix-black">收视冠军</option>
+                    <option value="本周上新" className="bg-netflix-black">本周上新</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
                 </div>
-                
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <div className="shrink-0 w-full md:w-auto">
+              {!isRunning ? (
                 <button 
                   onClick={handleRunWorkflow}
-                  disabled={status === 'scraping' || status === 'generating_note' || status === 'running'}
-                  className={`px-12 py-8 m-2 rounded-2xl font-black text-xl uppercase tracking-tighter flex items-center gap-3 transition-all cursor-pointer w-full md:w-auto
-                    ${(status === 'scraping' || status === 'generating_note' || status === 'running')
-                      ? 'bg-white/5 text-white/30 cursor-not-allowed' 
-                      : 'bg-netflix-red hover:bg-white hover:text-netflix-red shadow-2xl shadow-netflix-red/30 active:scale-95'}`}
+                  className="w-full md:w-auto px-8 py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all cursor-pointer bg-netflix-red hover:bg-white hover:text-netflix-red shadow-lg shadow-netflix-red/30 active:scale-95"
                 >
-                  {(status === 'scraping' || status === 'generating_note' || status === 'running') ? <Loader2 className="w-7 h-7 animate-spin" /> : <Zap className="w-7 h-7 fill-current" />}
-                  {status === 'scraping' ? "Scraping..." : status === 'generating_note' ? "Crafting..." : "Initiate"}
+                  <Zap className="w-5 h-5 fill-current" />
+                  {status === 'completed' || status === 'stopped' ? '重新采集' : '开始采集'}
                 </button>
-             </div>
-          </div>
-
-          <div className="lg:col-span-8 space-y-12">
-            {/* Live Feed */}
-            <div className="glass rounded-[2.5rem] overflow-hidden flex flex-col h-[500px]">
-              <div className="px-10 py-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                <h3 className="font-bold text-lg flex items-center gap-3">
-                  <ScrollText className="w-5 h-5 text-netflix-red" />
-                  Execution Logs
-                </h3>
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2 text-xs font-bold text-white/40 uppercase tracking-widest">
-                    <div className={`w-2 h-2 rounded-full ${(status === 'running' || status === 'scraping' || status === 'generating_note') ? 'bg-netflix-red animate-pulse' : 'bg-white/10'}`} />
-                    Status: {status.replace('_', ' ')}
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="w-3 h-3 rounded-full bg-white/10" />
-                    <div className="w-3 h-3 rounded-full bg-white/10" />
-                  </div>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-10 mono text-sm leading-relaxed space-y-1 bg-black/20">
-                {logs.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-20">
-                    <Globe className="w-12 h-12" />
-                    <p className="italic font-medium">System idle. Synchronize parameters to start.</p>
-                  </div>
-                )}
-                {logs.map((log, i) => (
-                  <div key={i} className="text-white/60">
-                     <span className="text-white/20 mr-4 tabular-nums">[{String(i+1).padStart(3, '0')}]</span>
-                     {log}
-                  </div>
-                ))}
-                <div ref={logEndRef} />
-              </div>
+              ) : (
+                <button 
+                  onClick={handleStop}
+                  className="w-full md:w-auto px-8 py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all cursor-pointer bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/30 active:scale-95"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                  停止采集
+                </button>
+              )}
             </div>
           </div>
-
-          <aside className="lg:col-span-4 space-y-8">
-            {/* Stats Card */}
-            <div className="glass p-10 rounded-[2.5rem] relative overflow-hidden flex flex-col items-center text-center space-y-6">
-              <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center">
-                 <Shield className="w-10 h-10 text-netflix-red" />
-              </div>
-              <div>
-                <p className="text-sm font-bold uppercase tracking-[0.3em] text-white/30 mb-2">Validated Records</p>
-                <h4 className="text-7xl font-black tracking-tighter">{count}</h4>
-              </div>
-              <p className="text-white/40 text-sm leading-relaxed px-4">
-                Structured meta-data synchronized and cached for distribution.
-              </p>
-            </div>
-
-            {/* Actions */}
-            {(results.length > 0 || status === 'completed') && (
-              <motion.button 
-                onClick={handleDownload}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full glass hover:bg-white hover:text-black py-8 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all uppercase tracking-tight cursor-pointer"
-              >
-                <Download className="w-6 h-6" /> Export All Data
-              </motion.button>
-            )}
-
-            {/* Note Display Area */}
-            {(noteContent || generatingNote) && (
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-6"
-              >
-                {/* Title Section */}
-                <div className="glass p-6 rounded-[2rem] border border-white/10 bg-white/[0.02]">
-                    <div className="flex justify-between items-center mb-4">
-                        <h4 className="text-sm font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
-                            <Sparkles className="w-4 h-4 text-purple-500" />
-                            Magic Title
-                        </h4>
-                        <button 
-                            onClick={copyTitle}
-                            disabled={!noteTitle}
-                            className={`text-xs font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2 
-                                ${titleCopied ? 'bg-green-500/20 text-green-400' : 'bg-white/10 hover:bg-white/20 text-white'}`}
-                        >
-                            {titleCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            {titleCopied ? "Copied" : "Copy Title"}
-                        </button>
-                    </div>
-                    <div className="bg-black/30 rounded-xl p-4 font-medium text-lg min-h-[60px] flex items-center">
-                        {generatingNote ? (
-                            <div className="flex items-center gap-2 text-white/30 animate-pulse">
-                                <Loader2 className="w-4 h-4 animate-spin" /> Generating title...
-                            </div>
-                        ) : (
-                            noteTitle || "Waiting for content..."
-                        )}
-                    </div>
-                </div>
-
-                {/* Content Section */}
-                <div className="glass p-6 rounded-[2rem] border border-purple-500/20 bg-purple-500/[0.02]">
-                    <div className="flex justify-between items-center mb-4">
-                        <h4 className="text-sm font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
-                            <ScrollText className="w-4 h-4 text-purple-500" />
-                            Magic Content
-                        </h4>
-                        <button 
-                            onClick={copyContent}
-                            disabled={!noteContent}
-                            className={`text-xs font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2 
-                                ${contentCopied ? 'bg-green-500/20 text-green-400' : 'bg-white/10 hover:bg-white/20 text-white'}`}
-                        >
-                            {contentCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            {contentCopied ? "Copied" : "Copy Content"}
-                        </button>
-                    </div>
-                    <div className="bg-black/30 rounded-xl p-4 font-sans text-base leading-relaxed whitespace-pre-wrap min-h-[150px] max-h-[400px] overflow-y-auto custom-scrollbar">
-                        {generatingNote ? (
-                            <div className="flex items-center gap-2 text-white/30 animate-pulse">
-                                <Loader2 className="w-4 h-4 animate-spin" /> Crafting viral post...
-                            </div>
-                        ) : (
-                            noteContent || "Waiting for content..."
-                        )}
-                    </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Running Indicator */}
-            {(status === 'running' || status === 'scraping' || status === 'generating_note') && (
-              <div className="glass p-6 rounded-[2rem] space-y-4">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="w-5 h-5 animate-spin text-netflix-red" />
-                  <span className="text-sm font-bold uppercase tracking-widest text-netflix-red animate-pulse">
-                    {status === 'generating_note' ? 'Crafting Note...' : 'Engine Active'}
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min((count / 20) * 100, 95)}%` }}
-                    transition={{ duration: 0.5 }}
-                    className="h-full bg-netflix-red rounded-full shadow-[0_0_15px_rgba(229,9,20,0.5)]"
-                  />
-                </div>
-                <p className="text-xs text-white/40 text-center">{count} items collected so far</p>
-              </div>
-            )}
-          </aside>
         </section>
 
-        {/* Generated Assets Section */}
-        {(titleImage || generatingTitle) && (
-            <section className="space-y-6">
-                <div className="glass p-8 rounded-[2.5rem] flex flex-col md:flex-row items-center gap-10">
-                    <div className="w-full md:w-1/3 aspect-[3/4] bg-black/50 rounded-2xl overflow-hidden relative shadow-2xl border border-white/10 group">
-                        {titleImage ? (
-                            <>
-                            <img 
-                                key={titleImage} // Force reload on change
-                                src={`/images/${titleImage}?t=${Date.now()}`} 
-                                className="w-full h-full object-cover" 
-                                alt="Title Page" 
-                            />
-                            <button 
-                                onClick={handleDownload}
-                                className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 font-bold text-white cursor-pointer"
-                            >
-                                <Download className="w-6 h-6" /> Download All Assets
-                            </button>
-                            </>
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center flex-col gap-4 text-white/30">
-                                <Loader2 className="w-10 h-10 animate-spin" />
-                                <span className="text-xs font-bold uppercase tracking-widest">Generating Cover...</span>
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex-1 space-y-6 text-center md:text-left">
-                        <div>
-                            <h3 className="text-3xl font-black uppercase tracking-tighter mb-2">Social Media Kit</h3>
-                            <p className="text-white/50 text-lg">
-                                Ready-to-post cover image + <span className="text-white">{results.length}</span> extracted posters.
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                             <div className="px-4 py-2 bg-white/5 rounded-lg text-xs font-bold uppercase tracking-wider text-white/40 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-netflix-red" /> 1242x1656px
-                             </div>
-                             <div className="px-4 py-2 bg-white/5 rounded-lg text-xs font-bold uppercase tracking-wider text-white/40 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-netflix-red" /> Retina Quality
-                             </div>
-                        </div>
-                    </div>
+        {/* ========== Progress Bar (shows during scraping) ========== */}
+        <AnimatePresence>
+          {isRunning && (
+            <motion.section 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="glass rounded-2xl p-5 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-netflix-red" />
+                  <span className="text-sm font-bold text-netflix-red">
+                    {status === 'generating_note' ? '正在生成 AI 文案...' : '正在采集数据...'}
+                  </span>
                 </div>
-            </section>
+                <div className="flex items-center gap-4 text-xs text-white/50">
+                  <span className="flex items-center gap-1">
+                    <Film className="w-3 h-3" />
+                    已采集 <span className="text-white font-bold">{count}</span> 部
+                  </span>
+                  {eta > 0 && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      预计 <span className="text-netflix-red font-bold">{eta}s</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min((count / (total || 100)) * 100, 95)}%` }}
+                  transition={{ duration: 0.5 }}
+                  className="h-full bg-netflix-red rounded-full shadow-[0_0_10px_rgba(229,9,20,0.4)]"
+                />
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* ========== Collapsible Logs Panel ========== */}
+        {logs.length > 0 && (
+          <section className="glass rounded-2xl overflow-hidden">
+            <button 
+              onClick={() => setLogsExpanded(!logsExpanded)}
+              className="w-full px-5 py-3 flex justify-between items-center cursor-pointer hover:bg-white/[0.02] transition-colors"
+            >
+              <h3 className="font-semibold text-sm flex items-center gap-2 text-white/60">
+                <ScrollText className="w-4 h-4 text-netflix-red" />
+                执行日志
+                <span className="text-white/30 text-xs">({logs.length})</span>
+              </h3>
+              {logsExpanded ? <ChevronUp className="w-4 h-4 text-white/30" /> : <ChevronDown className="w-4 h-4 text-white/30" />}
+            </button>
+            <AnimatePresence>
+              {logsExpanded && (
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: 'auto' }}
+                  exit={{ height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="max-h-[250px] overflow-y-auto px-5 pb-4 mono text-xs leading-relaxed space-y-0.5 border-t border-white/5">
+                    {logs.map((log, i) => (
+                      <div key={i} className="text-white/50 py-0.5">
+                        <span className="text-white/15 mr-3 tabular-nums">[{String(i+1).padStart(3, '0')}]</span>
+                        {log}
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
         )}
 
-        {/* Interactive Gallery */}
-        <section className="space-y-12">
-           <div className="flex flex-col items-center space-y-4 text-center">
-              <div className="w-12 h-1 bg-netflix-red rounded-full" />
-              <div className="flex items-center gap-6">
-                <h2 className="text-4xl font-black uppercase tracking-tighter">Captured Masterpieces</h2>
-                {(results.length > 0 || status === 'completed') && (
+        {/* ========== Generated Cover & Stats ========== */}
+        {(titleImage || generatingTitle) && (
+          <section className="glass rounded-2xl p-6">
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <div className="w-full md:w-48 aspect-[3/4] bg-black/50 rounded-xl overflow-hidden relative shadow-2xl border border-white/10 group shrink-0">
+                {titleImage ? (
+                  <>
+                    <img 
+                      key={titleImage}
+                      src={`/images/${titleImage}?t=${Date.now()}`} 
+                      className="w-full h-full object-cover" 
+                      alt="封面图" 
+                    />
+                    <button 
+                      onClick={handleDownload}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 font-bold text-sm text-white cursor-pointer"
+                    >
+                      <Download className="w-5 h-5" /> 下载所有素材
+                    </button>
+                  </>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center flex-col gap-3 text-white/30">
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">生成封面中...</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 space-y-4 text-center md:text-left">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight mb-1">小红书素材包</h3>
+                  <p className="text-white/40 text-sm">
+                    封面 + <span className="text-white font-semibold">{count}</span> 张高清海报，已就绪
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                  <span className="px-3 py-1.5 bg-white/5 rounded-lg text-[11px] font-bold text-white/40">1242×1656px 封面</span>
+                  <span className="px-3 py-1.5 bg-white/5 rounded-lg text-[11px] font-bold text-white/40">450×630px 海报</span>
+                </div>
+                {hasResults && (
                   <button 
                     onClick={handleDownload}
-                    className="bg-netflix-red hover:bg-white hover:text-netflix-red text-white text-sm font-bold py-3 px-8 rounded-full flex items-center gap-2 transition-all cursor-pointer active:scale-95 shadow-lg shadow-netflix-red/30"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-netflix-red hover:bg-white hover:text-netflix-red text-sm font-bold rounded-xl transition-all cursor-pointer active:scale-95 shadow-lg shadow-netflix-red/20"
                   >
-                    <Download className="w-4 h-4" /> Download All (.zip)
+                    <Download className="w-4 h-4" /> 下载素材包 (.zip)
                   </button>
                 )}
               </div>
-              <p className="text-white/40 font-medium">Visual assets synchronized from Netflix Content Delivery Network.</p>
-           </div>
+            </div>
+          </section>
+        )}
 
-           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-8">
-              <AnimatePresence mode="popLayout">
-                {results.map((item, i) => (
-                  <motion.div 
-                    key={item.Title}
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: i * 0.04 }}
-                    className="group relative cursor-pointer"
-                  >
-                    <div className="aspect-[450/630] bg-white/5 rounded-2xl overflow-hidden border border-white/5 active:scale-95 transition-all card-scale shadow-2xl relative">
-                       <img 
-                          src={`/images/${item["Poster Filename"]}`} 
-                          alt={item.Title}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 grayscale-[30%] group-hover:grayscale-0"
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                       />
-                       <div className="absolute inset-0 bg-gradient-to-t from-black 0% via-black/40 50% to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                       
-                       {/* Overlay Content */}
-                       <div className="absolute inset-0 p-6 flex flex-col justify-end opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-4 group-hover:translate-y-0">
-                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-netflix-red mb-2">{item["Release Date"]}</p>
-                          <h4 className="text-lg font-black leading-tight mb-4 drop-shadow-lg">{item.Title}</h4>
-                          <div className="flex gap-2">
-                             <a 
-                                href={item["Watch URL"]} 
-                                target="_blank" 
-                                className="flex-1 bg-white text-black py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-netflix-red hover:text-white transition-colors"
-                             >
-                                <Play className="w-3.5 h-3.5 fill-current" /> Play
-                             </a>
-                          </div>
-                       </div>
+        {/* ========== AI Note Section ========== */}
+        {(noteContent || generatingNote) && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-400" />
+                AI 文案
+              </h2>
+              {hasResults && !generatingNote && (
+                <button
+                  onClick={handleGenerateNote}
+                  className="text-xs font-bold px-4 py-2 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" /> 重新生成
+                </button>
+              )}
+            </div>
+
+            {/* Title Card */}
+            <div className="glass p-5 rounded-2xl">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-white/30">标题</span>
+                <button 
+                  onClick={() => copyToClipboard(noteTitle, setTitleCopied)}
+                  disabled={!noteTitle}
+                  className={`text-[11px] font-bold px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 cursor-pointer
+                    ${titleCopied ? 'bg-green-500/20 text-green-400' : 'bg-white/10 hover:bg-white/15 text-white/60'}`}
+                >
+                  {titleCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {titleCopied ? "已复制" : "复制"}
+                </button>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3 font-semibold text-base min-h-[40px] flex items-center">
+                {generatingNote ? (
+                  <span className="flex items-center gap-2 text-white/30 animate-pulse text-sm">
+                    <Loader2 className="w-3 h-3 animate-spin" /> 生成标题中...
+                  </span>
+                ) : (
+                  noteTitle || "等待生成..."
+                )}
+              </div>
+            </div>
+
+            {/* Content Card */}
+            <div className="glass p-5 rounded-2xl border-purple-500/10">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-white/30">正文</span>
+                <button 
+                  onClick={() => copyToClipboard(noteContent, setContentCopied)}
+                  disabled={!noteContent}
+                  className={`text-[11px] font-bold px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 cursor-pointer
+                    ${contentCopied ? 'bg-green-500/20 text-green-400' : 'bg-white/10 hover:bg-white/15 text-white/60'}`}
+                >
+                  {contentCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {contentCopied ? "已复制" : "复制"}
+                </button>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3 text-sm leading-relaxed whitespace-pre-wrap min-h-[100px] max-h-[300px] overflow-y-auto custom-scrollbar">
+                {generatingNote ? (
+                  <span className="flex items-center gap-2 text-white/30 animate-pulse text-sm">
+                    <Loader2 className="w-3 h-3 animate-spin" /> 正在撰写小红书文案...
+                  </span>
+                ) : (
+                  noteContent || "等待生成..."
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ========== Poster Gallery ========== */}
+        <section className="space-y-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-0.5 bg-netflix-red rounded-full" />
+              <h2 className="text-xl font-black uppercase tracking-tight">影片海报</h2>
+              {results.length > 0 && (
+                <span className="text-white/30 text-sm font-semibold">{results.length} 部</span>
+              )}
+            </div>
+            {hasResults && (
+              <button 
+                onClick={handleDownload}
+                className="bg-white/5 hover:bg-netflix-red text-white text-xs font-bold py-2 px-5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <Download className="w-3.5 h-3.5" /> 下载全部
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <AnimatePresence mode="popLayout">
+              {results.map((item, i) => (
+                <motion.div 
+                  key={item.Title}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: i * 0.03 }}
+                  className="group relative cursor-pointer"
+                >
+                  <div className="aspect-[450/630] bg-white/5 rounded-xl overflow-hidden border border-white/5 active:scale-95 transition-all card-scale shadow-xl relative">
+                    <img 
+                      src={`/images/${item["Poster Filename"]}`} 
+                      alt={item.Title}
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 grayscale-[20%] group-hover:grayscale-0"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    
+                    {/* Overlay Content */}
+                    <div className="absolute inset-0 p-4 flex flex-col justify-end opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-netflix-red mb-1">{item["Release Date"]}</p>
+                      <h4 className="text-sm font-bold leading-snug mb-3 drop-shadow-lg">{item.Title}</h4>
+                      <a 
+                        href={item["Watch URL"]} 
+                        target="_blank" 
+                        className="bg-white text-black py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-netflix-red hover:text-white transition-colors"
+                      >
+                        <Play className="w-3 h-3 fill-current" /> 观看
+                      </a>
                     </div>
-                  </motion.div>
-                ))}
-                {results.length === 0 && Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="aspect-[450/630] bg-white/[0.03] rounded-2xl border border-dashed border-white/10 flex items-center justify-center text-white/[0.02]">
-                     <ImageIcon className="w-16 h-16" />
                   </div>
-                ))}
-              </AnimatePresence>
-           </div>
+                </motion.div>
+              ))}
+              {results.length === 0 && Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="aspect-[450/630] bg-white/[0.02] rounded-xl border border-dashed border-white/5 flex items-center justify-center text-white/[0.03]">
+                  <ImageIcon className="w-12 h-12" />
+                </div>
+              ))}
+            </AnimatePresence>
+          </div>
         </section>
 
-        {/* Footer */}
-        <footer className="pt-24 border-t border-white/5 text-center text-white/20 text-xs font-bold uppercase tracking-[0.5em]">
-          Automated by Deepmind Antigravity • Premium Extraction Engine v2.0
+        {/* ========== Footer ========== */}
+        <footer className="pt-12 pb-6 border-t border-white/5 text-center text-white/15 text-[10px] font-bold uppercase tracking-[0.4em]">
+          Powered by Deepmind Antigravity
         </footer>
       </div>
-      
-      {/* Note Modal Removed */}
     </div>
   );
 };
