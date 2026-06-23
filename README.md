@@ -1,51 +1,233 @@
-# Netflix Meta-Scraper & Content Engine (全自动 Netflix 内容生成引擎)
+# AI 小红书内容运营系统
+
+**AI-assisted Xiaohongshu Content Operation System**
+
+这是一个面向小红书内容创作者 / 内容运营者的 AI 辅助内容运营系统，覆盖 **内容选题、素材采集、视觉资产生成、AI 文案创作、发布素材整理与运营流程自动化**。
+
+当前项目以「Netflix 本周新片」内容账号作为第一个 Demo 场景：系统可以自动采集 Netflix 最新上映内容，生成小红书竖版封面，调用 AI 生成小红书风格文案，并将发布所需素材一键打包，辅助完成从选题到发布前准备的内容生产流程。
+
+---
 
 ## 账号成果
+
+该项目并非单纯的技术 Demo，而是基于一个真实运营过的小红书内容账号沉淀而来。
+
+在实际运营过程中，该账号实现：
+
+- 小红书粉丝数突破 5,000+
+- 内容持续获得自然流量
+- 跑通从内容生产、发布到用户增长的完整流程
+- 实现商业化变现验证
+
+后续由于平台政策与内容合规原因，账号被封禁。
+因此，这个项目的核心价值不只是“自动生成内容”，而是验证了一套可运行的内容运营流程：
+
+```text
+内容源选择
+↓
+素材采集
+↓
+封面生成
+↓
+AI 文案创作
+↓
+发布素材整理
+↓
+账号增长
+↓
+商业化验证
+```
+
 ![效果预览图](https://github.com/user-attachments/assets/acfa83b8-5e88-48c9-b375-3155026b6df9)
 
+---
+
 ## 项目界面
+
 <img width="3012" height="4075" alt="项目预览图" src="https://github.com/user-attachments/assets/8fafad4f-a7c5-41a7-871a-5874411b772c" />
 
-## 🚀 项目简介
+---
 
-**Netflix Meta-Scraper** 是专为自媒体创作者（小红书/Instagram）打造的全栈内容自动化工具。它将数据采集、视觉设计、AI 文案创作无缝整合，能够在几秒钟内生成高质量的“Netflix 本周新片”图文素材，助你轻松打造爆款内容。
+## 为什么做这个项目
 
-## ✨ 核心功能
+内容运营中有大量重复、繁琐但又必须完成的工作：
 
-- **🔍 智能采集引擎**: 自动抓取 Netflix 官网“最新上映”数据，支持精确的日期范围筛选（从第1页到第N页全量扫描）。
-- **🎨 动态封面生成**: 自动生成 1242x1656px 高清竖版封面，内置“收视冠军”主题设计，实时渲染上映日期范围。
-- **🤖 AI 文案创作**: 集成 GPT-4o-mini，自动撰写 emoji 丰富、语气热情的小红书风格文案（包含动态标题和标准化 Tag）。
-- **📦 一键素材打包**: 告别繁琐操作，一键下载 `Title_Page.jpg`（封面）+ 所有高清电影海报，自动剔除无关文件。
-- **⚡️ 极客交互界面**: 基于 React + Vite + Tailwind CSS 打造的电影级深色 UI，提供实时日志反馈和流畅的交互体验。
+- 寻找稳定的内容选题
+- 采集内容源和基础信息
+- 整理图片、标题、发布时间等素材
+- 设计封面和图文结构
+- 撰写符合平台语境的内容文案
+- 将素材整理成可直接发布的内容包
+- 周期性重复以上流程
 
-## 🛠️ 技术栈
+对内容账号来说，真正影响效率的往往不只是“想不到内容”，而是整个内容生产流程不够稳定、不够系统。
 
-- **后端**: Python 3.9+, FastAPI, Playwright (Async), OpenAI API
-- **前端**: React 18, Vite, Tailwind CSS, Framer Motion
-- **图像处理**: Pillow (PIL), Playwright Screenshot Strategy
+所以这个项目想解决的问题是：
 
-## 📦 安装指南
+> 如何用 AI 和自动化工具，把分散的内容运营动作，整理成一个可重复执行的内容生产系统。
+
+---
+
+## 项目简介
+
+这个系统目前聚焦在「Netflix 本周新片」这个内容场景。
+
+传统流程中，运营者需要手动查看 Netflix 新片、下载海报、整理上映日期、设计封面、撰写小红书文案、打包图片素材。
+
+该项目将这一整套流程自动化：
+
+```text
+内容源采集
+↓
+日期范围筛选
+↓
+标题 / 海报 / 上映信息提取
+↓
+小红书竖版封面生成
+↓
+AI 小红书文案生成
+↓
+发布素材一键打包
+↓
+发布前准备
+```
+
+这个项目的重点不是单纯做一个爬虫工具，而是尝试搭建一个 **AI 辅助内容运营工作流**。未来这套流程可以迁移到更多内容场景，例如影视资讯、热点榜单、产品推荐、品牌内容号等。
+
+---
+
+## 核心功能
+
+### 1. 内容源自动采集
+
+系统自动抓取 Netflix 最新上映内容，并支持按日期范围进行筛选。
+
+它会扫描多页内容，提取片名、上映日期、海报图片等信息，为后续封面生成和文案创作提供基础素材。
+
+---
+
+### 2. 小红书竖版封面生成
+
+系统会自动生成适合小红书图文发布的竖版封面。
+
+当前输出尺寸为：
+
+```text
+1242 × 1656 px
+```
+
+封面模板中包含动态日期范围、内容标题和「本周新片 / 收视冠军」等视觉结构，用于降低人工设计成本。
+
+---
+
+### 3. AI 小红书文案创作
+
+系统集成 GPT-4o-mini，可自动生成更贴近小红书语境的图文文案。
+
+文案内容包含：
+
+- 小红书风格标题
+- Emoji 表达
+- 热情、口语化的推荐语气
+- 标准化话题标签
+- 适合图文发布的内容结构
+
+---
+
+### 4. 一键素材打包
+
+系统可以将发布前需要的素材自动整理并打包下载。
+
+素材包包括：
+
+```text
+Title_Page.jpg
+影视海报图片
+AI 生成文案
+发布前所需素材
+```
+
+这一步可以减少内容发布前反复整理图片、命名文件、复制文案的时间成本。
+
+---
+
+### 5. 可视化操作界面
+
+前端基于 React + Vite + Tailwind CSS + Framer Motion 构建。
+
+界面支持：
+
+- 日期范围选择
+- 实时运行日志
+- AI 文案生成
+- 素材一键下载
+- 深色模式视觉界面
+
+---
+
+## 这个项目展示了什么能力
+
+这个项目不是单纯的爬虫工具，而是一个内容运营效率工具。
+
+它展示了我在以下方面的能力：
+
+- 将内容运营流程拆解成可复用模块
+- 用 AI 和自动化工具提升内容生产效率
+- 把数据采集、视觉生成、AI 文案创作整合进一个工作流
+- 从运营场景出发设计工具，而不是只为了写代码而写代码
+- 将重复执行的内容工作沉淀成系统和 SOP
+- 通过真实账号验证内容生产、用户增长与商业化链路
+- 从项目结果中复盘平台规则、内容合规与账号风险问题
+- 为后续的数据反馈、内容复盘和选题迭代预留空间
+
+更大的思路是：
+
+> AI 的价值不只是生成单篇内容，而是帮助运营者搭建可持续复用的工作系统。
+
+---
+
+## 技术栈
+
+### 后端
+
+- Python 3.9+
+- FastAPI
+- Playwright Async
+- OpenAI API
+
+### 前端
+
+- React 18
+- Vite
+- Tailwind CSS
+- Framer Motion
+
+### 图像处理
+
+- Pillow
+- Playwright Screenshot Strategy
+
+---
+
+## 安装指南
 
 ### 前置要求
 
 - Python 3.9+
 - Node.js 16+
-- Google Chrome 浏览器 (用于 Playwright 渲染)
+- Google Chrome / Chromium
 
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/The-AlexLiu/netflix-meta-scraper.git
-cd netflix-meta-scraper
+git clone https://github.com/The-AlexLiu/AI-XiaoHongShu-Operation-System.git
+cd AI-XiaoHongShu-Operation-System
 ```
 
 ### 2. 后端配置
 
 ```bash
-# 安装 Python 依赖
 pip install -r requirements.txt
-
-# 安装 Playwright 浏览器内核
 playwright install chromium
 ```
 
@@ -56,56 +238,80 @@ cd frontend
 npm install
 ```
 
-### 4. 环境变量 (.env)
+### 4. 环境变量配置
 
-在项目根目录创建 `.env` 文件，填入你的 OpenAI Key：
+在项目根目录创建 `.env` 文件，并填入 OpenAI API Key：
 
 ```ini
 OPENAI_API_KEY=sk-your-api-key-here
 ```
 
-## 🚀 使用说明
+---
 
-### 启动项目
+## 使用说明
 
-1. **启动后端服务** (在根目录):
-   ```bash
-   python app.py
-   ```
-2. **启动前端界面** (在 frontend 目录):
-   ```bash
-   cd frontend
-   npm run dev
-   ```
-3. 打开浏览器访问: `http://localhost:5173`
+### 1. 启动后端服务
 
-### 操作流程
+在项目根目录运行：
 
-1. **选择日期**: 设置你想抓取的时间段（例如：2月11日 - 2月15日）。
-2. **点击 INITIATE**: 系统将自动开始爬取数据、下载海报、并生成封面。
-3. **生成 AI 文案**: 抓取完成后，点击 `Generate Note` 获取 AI 撰写的小红书文案。
-4. **一键下载**: 点击 `Download All Assets`，获得包含封面和所有海报的纯净压缩包。
-
-## 📂 项目结构
-
+```bash
+python app.py
 ```
+
+### 2. 启动前端界面
+
+在 `frontend` 目录下运行：
+
+```bash
+cd frontend
+npm run dev
+```
+
+### 3. 打开项目
+
+在浏览器访问：
+
+```text
+http://localhost:5173
+```
+
+### 4. 操作流程
+
+```text
+1. 选择日期范围
+2. 点击 INITIATE
+3. 等待系统完成内容采集与素材生成
+4. 点击 Generate Note 生成小红书文案
+5. 点击 Download All Assets 导出发布素材包
+```
+
+---
+
+## 项目结构
+
+```text
 .
-├── app.py                 # FastAPI 后端核心 & API 接口
-├── netflix_scraper.py     # Playwright 爬虫脚本
-├── title_generator/       # 动态封面生成器模块
+├── app.py                 # FastAPI 后端核心与 API 接口
+├── netflix_scraper.py     # 当前 Demo 场景下的 Netflix 内容源采集模块
+├── title_generator/       # 动态封面生成模块
 ├── images/                # 图片素材缓存目录
 ├── frontend/              # React + Vite 前端源码
 │   ├── src/
 │   │   ├── App.jsx        # 主 UI 逻辑
-│   │   └── index.css      # Tailwind & 全局样式
-│   └── vite.config.js     # 前端配置 (含 API 代理)
+│   │   └── index.css      # Tailwind 与全局样式
+│   └── vite.config.js     # 前端配置与 API 代理
 └── requirements.txt       # Python 依赖列表
 ```
 
-## 📝 开源协议
-
-MIT License. 仅供学习与研究使用。
+> 说明：当前版本以 Netflix 新片内容作为第一个 Demo 内容源，因此部分历史文件名中仍保留 `netflix` 命名。后续会逐步将相关模块重命名为更通用的内容源采集模块。
 
 ---
 
-_Built with ❤️ for Creators._
+## 开源协议
+
+MIT License.  
+仅供学习、研究与作品集展示使用。
+
+---
+
+Built with ❤️ for creators, operators, and AI-assisted content workflows.
