@@ -25,8 +25,8 @@ def test_scrape():
     log("Starting Scrape Test...")
     # Use a future date range to ensure we find some items based on manual check
     payload = {
-        "start_date": "2026-02-01",
-        "end_date": "2026-02-28"
+        "start_date": "2024-02-01",
+        "end_date": "2024-02-28"
     }
     response = requests.post(f"{BASE_URL}/api/scrape", json=payload)
     if response.status_code == 200:
@@ -69,8 +69,8 @@ def test_results():
 def test_generate_note():
     log("Testing Note Generation...")
     payload = {
-        "start_date": "2026-02-01",
-        "end_date": "2026-02-28",
+        "start_date": "2024-02-01",
+        "end_date": "2024-02-28",
         "override_title": "Test Title",
         "override_tags": "#Test"
     }

@@ -1,7 +1,6 @@
 # Dashboard Page Overrides
 
 > **PROJECT:** Netflix Scraper v2
-> **Generated:** 2026-02-11 17:08:24
 > **Page Type:** Dashboard / Data View
 
 > ⚠️ **IMPORTANT:** Rules in this file **override** the Master file (`design-system/MASTER.md`).
